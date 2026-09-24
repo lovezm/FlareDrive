@@ -76,7 +76,7 @@ function LoginDialog({ open, onLogin, onClose }: LoginDialogProps) {
           component="h1"
           sx={{ fontWeight: 600, letterSpacing: "-0.6px" }}
         >
-          登录 FlareDrive
+          登录星科技下载中心
         </Typography>
         <Typography color="text.secondary" sx={{ mt: 1, mb: 3 }}>
           使用部署时配置的 WebDAV 账号进入文件管理。

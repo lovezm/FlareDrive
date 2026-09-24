@@ -60,7 +60,7 @@ function Header({
               variant="h6"
               sx={{ display: { xs: "none", sm: "block" }, fontWeight: 600, letterSpacing: "-0.6px" }}
             >
-              FlareDrive
+              星科技下载中心
             </Typography>
           </Box>
 

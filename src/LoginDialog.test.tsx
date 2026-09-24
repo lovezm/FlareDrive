@@ -6,7 +6,7 @@ describe("LoginDialog", () => {
     const onLogin = jest.fn().mockResolvedValue(undefined);
     render(<LoginDialog open onLogin={onLogin} />);
 
-    expect(screen.getByRole("dialog", { name: "登录 FlareDrive" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "登录星科技下载中心" })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("用户名"), {
       target: { value: "admin" },

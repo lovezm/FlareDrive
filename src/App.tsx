@@ -11,6 +11,7 @@ import {
 import React, { useCallback, useEffect, useState } from "react";
 
 import Header from "./Header";
+import Footer from "./Footer";
 import LoginDialog from "./LoginDialog";
 import Main from "./Main";
 import ProgressDialog from "./ProgressDialog";
@@ -166,6 +167,7 @@ function App() {
                   onUnauthorized={handleUnauthorized}
                   readOnly={!session.authenticated}
                 />
+                <Footer />
               </Stack>
               <ProgressDialog
                 open={showProgressDialog}
