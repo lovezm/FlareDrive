@@ -1,8 +1,9 @@
 # 星科技下载中心
 
-基于 [FlareDrive](https://github.com/lovezm/FlareDrive) 定制的 Cloudflare R2 文件管理与下载中心，使用 Cloudflare Pages Functions 和 Workers 运行。
+基于原项目 [longern/FlareDrive](https://github.com/longern/FlareDrive) 定制的 Cloudflare R2 文件管理与下载中心，使用 Cloudflare Pages Functions 和 Workers 运行。
 
-- 项目仓库：https://github.com/lovezm/FlareDrive
+- 原项目：https://github.com/longern/FlareDrive
+- 本定制版仓库：https://github.com/lovezm/FlareDrive
 - 星科技官网：https://xkji.com
 
 ## 定制内容
@@ -85,5 +86,7 @@ npm run build
 ```
 
 ## 致谢
+
+本项目定制自 [longern/FlareDrive](https://github.com/longern/FlareDrive)，感谢原作者及贡献者。
 
 WebDAV 相关实现基于 [r2-webdav](https://github.com/abersheeran/r2-webdav) 项目。
