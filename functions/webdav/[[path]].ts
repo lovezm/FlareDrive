@@ -9,6 +9,12 @@ import { handleRequestPropfind } from "./propfind";
 import { handleRequestPut } from "./put";
 import { RequestHandlerParams } from "./utils";
 import { handleRequestPost } from "./post";
+import {
+  AuthEnv,
+  credentialsMatch,
+  hasValidSession,
+  readBasicCredentials,
+} from "../_auth";
 
 async function handleRequestOptions() {
   return new Response(null, {
@@ -38,11 +44,7 @@ const HANDLERS: Record<
   DELETE: handleRequestDelete,
 };
 
-export const onRequest: PagesFunction<{
-  WEBDAV_USERNAME: string;
-  WEBDAV_PASSWORD: string;
-  WEBDAV_PUBLIC_READ?: string;
-}> = async function (context) {
+export const onRequest: PagesFunction<AuthEnv> = async function (context) {
   const env = context.env;
   const request: Request = context.request;
   if (request.method === "OPTIONS") return handleRequestOptions();
@@ -55,18 +57,29 @@ export const onRequest: PagesFunction<{
     if (!env.WEBDAV_USERNAME || !env.WEBDAV_PASSWORD)
       return new Response("WebDAV protocol is not enabled", { status: 403 });
 
-    const auth = request.headers.get("Authorization");
-    if (!auth) {
+    const sessionAuthorized = await hasValidSession(request, env);
+    const basicCredentials = sessionAuthorized
+      ? null
+      : readBasicCredentials(request);
+    const basicAuthorized = basicCredentials
+      ? credentialsMatch(
+          basicCredentials.username,
+          basicCredentials.password,
+          env
+        )
+      : false;
+
+    if (!sessionAuthorized && !basicAuthorized) {
+      const isBrowserRequest =
+        request.headers.has("Sec-Fetch-Site") ||
+        request.headers.get("X-FlareDrive-App") === "1";
       return new Response("Unauthorized", {
         status: 401,
-        headers: { "WWW-Authenticate": `Basic realm="WebDAV"` },
+        headers: isBrowserRequest
+          ? undefined
+          : { "WWW-Authenticate": `Basic realm="WebDAV", charset="UTF-8"` },
       });
     }
-    const expectedAuth = `Basic ${btoa(
-      `${env.WEBDAV_USERNAME}:${env.WEBDAV_PASSWORD}`
-    )}`;
-    if (auth !== expectedAuth)
-      return new Response("Unauthorized", { status: 401 });
   }
 
   const [bucket, path] = parseBucketPath(context);

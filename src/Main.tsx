@@ -1,39 +1,54 @@
-// Main.tsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Breadcrumbs,
   Button,
   CircularProgress,
+  Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Link,
+  Paper,
+  Stack,
+  TextField,
   Typography,
 } from "@mui/material";
-import { Home as HomeIcon, NoteAdd as NoteAddIcon } from "@mui/icons-material";
+import {
+  CreateNewFolderOutlined as CreateFolderIcon,
+  DescriptionOutlined as NoteIcon,
+  HomeOutlined as HomeIcon,
+  UploadOutlined as UploadIcon,
+} from "@mui/icons-material";
 
-import FileGrid, { encodeKey, FileItem, isDirectory } from "./FileGrid";
+import FileGrid, {
+  encodeKey,
+  extractFilename,
+  FileItem,
+  isDirectory,
+} from "./FileGrid";
 import MultiSelectToolbar from "./MultiSelectToolbar";
-import UploadDrawer, { UploadFab } from "./UploadDrawer";
+import UploadDrawer from "./UploadDrawer";
 import TextPadDrawer from "./TextPadDrawer";
-import { copyPaste, fetchPath } from "./app/transfer";
+import {
+  copyPaste,
+  createFolder,
+  fetchPath,
+  HttpError,
+} from "./app/transfer";
 import { useTransferQueue, useUploadEnqueue } from "./app/transferQueue";
+import { deleteFiles } from "./fileActions";
 
-// Centered helper
 function Centered({ children }: { children: React.ReactNode }) {
   return (
-    <Box
-      sx={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        height: "100%",
-      }}
-    >
+    <Box sx={{ minHeight: 280, display: "grid", placeItems: "center" }}>
       {children}
     </Box>
   );
 }
 
-// Breadcrumb component
 function PathBreadcrumb({
   path,
   onCwdChange,
@@ -41,106 +56,149 @@ function PathBreadcrumb({
   path: string;
   onCwdChange: (newCwd: string) => void;
 }) {
-  const parts = path.replace(/\/$/, "").split("/");
+  const parts = path.replace(/\/$/, "").split("/").filter(Boolean);
 
   return (
-    <Breadcrumbs separator="›" sx={{ padding: 1 }}>
-      <Button onClick={() => onCwdChange("")} sx={{ minWidth: 0, padding: 0 }}>
-        <HomeIcon />
-      </Button>
-      {parts.map((part, index) =>
-        index === parts.length - 1 ? (
-          <Typography key={index} color="text.primary">
+    <Breadcrumbs separator="/" aria-label="当前路径">
+      <Link
+        component="button"
+        type="button"
+        color={parts.length ? "text.secondary" : "text.primary"}
+        underline="hover"
+        onClick={() => onCwdChange("")}
+        sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}
+      >
+        <HomeIcon fontSize="small" />
+        我的文件
+      </Link>
+      {parts.map((part, index) => {
+        const last = index === parts.length - 1;
+        return last ? (
+          <Typography key={`${part}-${index}`} color="text.primary" fontWeight={500}>
             {part}
           </Typography>
         ) : (
           <Link
-            key={index}
+            key={`${part}-${index}`}
             component="button"
-            onClick={() => {
-              onCwdChange(parts.slice(0, index + 1).join("/") + "/");
-            }}
+            type="button"
+            color="text.secondary"
+            underline="hover"
+            onClick={() =>
+              onCwdChange(`${parts.slice(0, index + 1).join("/")}/`)
+            }
           >
             {part}
           </Link>
-        )
-      )}
+        );
+      })}
     </Breadcrumbs>
   );
 }
 
-// DropZone wrapper
-function DropZone({
-  children,
-  onDrop,
+function NameDialog({
+  open,
+  title,
+  label,
+  value,
+  submitLabel,
+  onChange,
+  onClose,
+  onSubmit,
 }: {
-  children: React.ReactNode;
-  onDrop: (files: FileList) => void;
+  open: boolean;
+  title: string;
+  label: string;
+  value: string;
+  submitLabel: string;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onSubmit: () => Promise<void>;
 }) {
-  const [dragging, setDragging] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   return (
-    <Box
-      sx={{
-        flexGrow: 1,
-        overflowY: "auto",
-        backgroundColor: (theme) => theme.palette.background.default,
-        filter: dragging ? "brightness(0.9)" : "none",
-        transition: "filter 0.2s",
-      }}
-      onDragEnter={(e) => {
-        e.preventDefault();
-        setDragging(true);
-      }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        onDrop(e.dataTransfer.files);
-        setDragging(false);
-      }}
-    >
-      {children}
-    </Box>
+    <Dialog open={open} onClose={submitting ? undefined : onClose} fullWidth maxWidth="xs">
+      <Box
+        component="form"
+        onSubmit={async (event: React.FormEvent) => {
+          event.preventDefault();
+          setSubmitting(true);
+          try {
+            await onSubmit();
+          } finally {
+            setSubmitting(false);
+          }
+        }}
+      >
+        <DialogTitle>{title}</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label={label}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            fullWidth
+            inputProps={{ maxLength: 255 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onClose} disabled={submitting}>取消</Button>
+          <Button type="submit" variant="contained" disabled={submitting || !value.trim()}>
+            {submitting ? "处理中…" : submitLabel}
+          </Button>
+        </DialogActions>
+      </Box>
+    </Dialog>
   );
 }
 
-// Main Component
 function Main({
   search,
   onError,
+  onUnauthorized,
+  readOnly = false,
 }: {
   search: string;
   onError: (error: Error) => void;
+  onUnauthorized: () => void;
+  readOnly?: boolean;
 }) {
   const [cwd, setCwd] = useState("");
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dragging, setDragging] = useState(false);
   const [multiSelected, setMultiSelected] = useState<string[] | null>(null);
   const [showUploadDrawer, setShowUploadDrawer] = useState(false);
   const [showTextPadDrawer, setShowTextPadDrawer] = useState(false);
   const [lastUploadKey, setLastUploadKey] = useState<string | null>(null);
+  const [renameKey, setRenameKey] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteKeys, setDeleteKeys] = useState<string[]>([]);
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
 
   const transferQueue = useTransferQueue();
   const uploadEnqueue = useUploadEnqueue();
 
-  const fetchFiles = useCallback(() => {
-    fetchPath(cwd)
-      .then((files) => {
-        setFiles(files);
-        setMultiSelected(null);
-      })
-      .catch(onError)
-      .finally(() => setLoading(false));
-  }, [cwd, onError]);
-
-  useEffect(() => setLoading(true), [cwd]);
+  const fetchFiles = useCallback(async () => {
+    try {
+      const nextFiles = await fetchPath(cwd);
+      setFiles(nextFiles);
+      setMultiSelected(null);
+    } catch (reason) {
+      const error = reason instanceof Error ? reason : new Error("读取文件失败");
+      if (error instanceof HttpError && error.status === 401) onUnauthorized();
+      else onError(error);
+    } finally {
+      setLoading(false);
+    }
+  }, [cwd, onError, onUnauthorized]);
 
   useEffect(() => {
-    fetchFiles();
+    setLoading(true);
+    void fetchFiles();
   }, [fetchFiles]);
 
   useEffect(() => {
@@ -149,10 +207,10 @@ function Main({
     if (["pending", "in-progress"].includes(lastFile.status)) {
       setLastUploadKey(lastFile.remoteKey);
     } else if (lastUploadKey) {
-      fetchFiles();
+      void fetchFiles();
       setLastUploadKey(null);
     }
-  }, [cwd, fetchFiles, lastUploadKey, transferQueue]);
+  }, [fetchFiles, lastUploadKey, transferQueue]);
 
   const filteredFiles = useMemo(
     () =>
@@ -161,118 +219,271 @@ function Main({
             file.key.toLowerCase().includes(search.toLowerCase())
           )
         : files
-      ).sort((a, b) => (isDirectory(a) ? -1 : isDirectory(b) ? 1 : 0)),
+      ).sort((a, b) =>
+        isDirectory(a) === isDirectory(b) ? 0 : isDirectory(a) ? -1 : 1
+      ),
     [files, search]
   );
 
   const handleMultiSelect = useCallback((key: string) => {
-    setMultiSelected((prev) => {
-      if (prev === null) return [key];
-      if (prev.includes(key)) {
-        const updated = prev.filter((k) => k !== key);
+    setMultiSelected((previous) => {
+      if (previous === null) return [key];
+      if (previous.includes(key)) {
+        const updated = previous.filter((item) => item !== key);
         return updated.length ? updated : null;
       }
-      return [...prev, key];
+      return [...previous, key];
     });
   }, []);
 
+  const download = (key: string) => {
+    const anchor = document.createElement("a");
+    anchor.href = `/webdav/${encodeKey(key)}`;
+    anchor.download = extractFilename(key);
+    anchor.click();
+  };
+
+  const requestRename = (key: string) => {
+    setRenameKey(key);
+    setRenameValue(extractFilename(key));
+  };
+
+  const requestDelete = (keys: string[]) => setDeleteKeys(keys);
+
+  const deleteSelected = async () => {
+    const { failed } = await deleteFiles(deleteKeys);
+    setDeleteKeys(failed);
+    await fetchFiles();
+    if (failed.length) {
+      onError(new Error(`${failed.length} 个项目删除失败，请重试`));
+    }
+  };
+
   return (
-    <>
-      {cwd && <PathBreadcrumb path={cwd} onCwdChange={setCwd} />}
-
-      {loading ? (
-        <Centered>
-          <CircularProgress />
-        </Centered>
-      ) : (
-        <DropZone
-          onDrop={(files) => {
-            uploadEnqueue(
-              ...Array.from(files).map((file) => ({ file, basedir: cwd }))
-            );
-          }}
-        >
-          <FileGrid
-            files={filteredFiles}
-            onCwdChange={(newCwd: string) => setCwd(newCwd)}
-            multiSelected={multiSelected}
-            onMultiSelect={handleMultiSelect}
-            emptyMessage={<Centered>No files or folders</Centered>}
-          />
-        </DropZone>
-      )}
-
-      {multiSelected === null && (
-        <>
-          <UploadFab onClick={() => setShowUploadDrawer(true)} />
-          <Button
-            variant="contained"
-            startIcon={<NoteAddIcon />}
-            sx={{
-              position: "fixed",
-              bottom: 90,
-              right: 24,
-              zIndex: 999,
-            }}
-            onClick={() => setShowTextPadDrawer(true)}
+    <Box
+      component="main"
+      sx={{ flex: 1, overflowY: "auto", bgcolor: "#fafafa", py: { xs: 2, sm: 4 } }}
+      onDragEnter={(event) => {
+        if (readOnly) return;
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragOver={(event) => {
+        if (readOnly) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(event) => {
+        if (readOnly) return;
+        if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false);
+      }}
+      onDrop={(event) => {
+        if (readOnly) return;
+        event.preventDefault();
+        setDragging(false);
+        uploadEnqueue(
+          ...Array.from(event.dataTransfer.files).map((file) => ({ file, basedir: cwd }))
+        );
+      }}
+    >
+      <Container maxWidth="xl">
+        <Stack spacing={3}>
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            justifyContent="space-between"
+            alignItems={{ xs: "stretch", md: "center" }}
+            gap={2}
           >
-            Open TextPad
-          </Button>
-        </>
-      )}
+            <Box>
+              <Typography variant="h5" component="h1" sx={{ fontWeight: 600, mb: 1 }}>
+                文件管理
+              </Typography>
+              <PathBreadcrumb path={cwd} onCwdChange={setCwd} />
+            </Box>
+            {readOnly ? (
+              <Typography variant="body2" color="text.secondary">
+                当前为只读访问，登录后可上传和管理文件
+              </Typography>
+            ) : (
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Button
+                  variant="contained"
+                  startIcon={<UploadIcon />}
+                  onClick={() => setShowUploadDrawer(true)}
+                >
+                  上传
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<CreateFolderIcon />}
+                  onClick={() => {
+                    setNewFolderName("");
+                    setNewFolderOpen(true);
+                  }}
+                >
+                  新建文件夹
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<NoteIcon />}
+                  onClick={() => setShowTextPadDrawer(true)}
+                >
+                  新建文本
+                </Button>
+              </Stack>
+            )}
+          </Stack>
+
+          {dragging && (
+            <Paper
+              elevation={0}
+              sx={{
+                p: 3,
+                textAlign: "center",
+                color: "primary.main",
+                bgcolor: "#f0f7ff",
+                boxShadow: "0 0 0 1px #0a72ef",
+              }}
+            >
+              松开鼠标即可上传到当前文件夹
+            </Paper>
+          )}
+
+          {loading ? (
+            <Centered><CircularProgress size={28} /></Centered>
+          ) : (
+            <FileGrid
+              files={filteredFiles}
+              onCwdChange={setCwd}
+              multiSelected={multiSelected}
+              onMultiSelect={handleMultiSelect}
+              onDownload={download}
+              onRename={requestRename}
+              onDelete={(key) => requestDelete([key])}
+              readOnly={readOnly}
+              emptyMessage={
+                <Paper
+                  elevation={0}
+                  sx={{
+                    minHeight: 280,
+                    display: "grid",
+                    placeItems: "center",
+                    textAlign: "center",
+                    color: "text.secondary",
+                    boxShadow: "0 0 0 1px rgba(0,0,0,.08)",
+                  }}
+                >
+                  <Box>
+                    <Typography color="text.primary" fontWeight={500}>
+                      {search ? "没有匹配的文件" : "此文件夹为空"}
+                    </Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5 }}>
+                      {search
+                        ? "请尝试其他关键词"
+                        : readOnly
+                        ? "当前目录暂无可查看的文件"
+                        : "拖入文件，或点击上传按钮"}
+                    </Typography>
+                  </Box>
+                </Paper>
+              }
+            />
+          )}
+        </Stack>
+      </Container>
 
       <UploadDrawer
-        open={showUploadDrawer}
+        open={!readOnly && showUploadDrawer}
         setOpen={setShowUploadDrawer}
         cwd={cwd}
         onUpload={fetchFiles}
       />
-
       <TextPadDrawer
-        open={showTextPadDrawer}
+        open={!readOnly && showTextPadDrawer}
         setOpen={setShowTextPadDrawer}
         cwd={cwd}
         onUpload={fetchFiles}
       />
 
       <MultiSelectToolbar
-        multiSelected={multiSelected}
+        multiSelected={readOnly ? null : multiSelected}
         onClose={() => setMultiSelected(null)}
-        onDownload={() => {
-          if (multiSelected?.length !== 1) return;
-          const a = document.createElement("a");
-          a.href = `/webdav/${encodeKey(multiSelected[0])}`;
-          a.download = multiSelected[0].split("/").pop()!;
-          a.click();
-        }}
-        onRename={async () => {
-          if (multiSelected?.length !== 1) return;
-          const newName = window.prompt("Rename to:");
-          if (!newName) return;
-          await copyPaste(multiSelected[0], cwd + newName, true);
-          fetchFiles();
-        }}
-        onDelete={async () => {
-          if (!multiSelected?.length) return;
-          const filenames = multiSelected
-            .map((key) => key.replace(/\/$/, "").split("/").pop())
-            .join("\n");
-          const confirmMessage = "Delete the following file(s) permanently?";
-          if (!window.confirm(`${confirmMessage}\n${filenames}`)) return;
-          for (const key of multiSelected)
-            await fetch(`/webdav/${encodeKey(key)}`, { method: "DELETE" });
-          fetchFiles();
-        }}
+        onDownload={() => multiSelected?.length === 1 && download(multiSelected[0])}
+        onRename={() => multiSelected?.length === 1 && requestRename(multiSelected[0])}
+        onDelete={() => multiSelected?.length && requestDelete(multiSelected)}
         onShare={() => {
           if (multiSelected?.length !== 1) return;
-          const url = new URL(
-            `/webdav/${encodeKey(multiSelected[0])}`,
-            window.location.href
-          );
-          navigator.share({ url: url.toString() });
+          const url = new URL(`/webdav/${encodeKey(multiSelected[0])}`, window.location.href);
+          if (navigator.share) void navigator.share({ url: url.toString() });
+          else void navigator.clipboard.writeText(url.toString());
         }}
       />
-    </>
+
+      <NameDialog
+        open={!readOnly && newFolderOpen}
+        title="新建文件夹"
+        label="文件夹名称"
+        value={newFolderName}
+        submitLabel="创建"
+        onChange={setNewFolderName}
+        onClose={() => setNewFolderOpen(false)}
+        onSubmit={async () => {
+          try {
+            await createFolder(cwd, newFolderName);
+            setNewFolderOpen(false);
+            await fetchFiles();
+          } catch (reason) {
+            onError(reason instanceof Error ? reason : new Error("创建文件夹失败"));
+          }
+        }}
+      />
+
+      <NameDialog
+        open={!readOnly && Boolean(renameKey)}
+        title="重命名"
+        label="新名称"
+        value={renameValue}
+        submitLabel="保存"
+        onChange={setRenameValue}
+        onClose={() => setRenameKey(null)}
+        onSubmit={async () => {
+          if (!renameKey) return;
+          try {
+            await copyPaste(renameKey, `${cwd}${renameValue.trim()}`, true);
+            setRenameKey(null);
+            await fetchFiles();
+          } catch (reason) {
+            onError(reason instanceof Error ? reason : new Error("重命名失败"));
+          }
+        }}
+      />
+
+      <Dialog
+        open={!readOnly && deleteKeys.length > 0}
+        onClose={() => setDeleteKeys([])}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>确认永久删除？</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            将删除 {deleteKeys.length} 个项目。文件夹中的内容也会一并删除，此操作无法撤销。
+          </DialogContentText>
+          <Box component="ul" sx={{ pl: 2.5, mb: 0, color: "text.primary" }}>
+            {deleteKeys.slice(0, 5).map((key) => (
+              <li key={key}>{extractFilename(key)}</li>
+            ))}
+            {deleteKeys.length > 5 && <li>以及其他 {deleteKeys.length - 5} 个项目</li>}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteKeys([])}>取消</Button>
+          <Button color="error" variant="contained" onClick={() => void deleteSelected()}>
+            永久删除
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
   );
 }
 

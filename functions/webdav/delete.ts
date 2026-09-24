@@ -13,7 +13,11 @@ export async function handleRequestDelete({
       return new Response(null, { status: 204 });
   }
 
-  const children = listAll(bucket, path === "" ? undefined : `${path}/`);
+  const children = listAll(
+    bucket,
+    path === "" ? undefined : `${path}/`,
+    true
+  );
   for await (const child of children) {
     await bucket.delete(child.key);
   }

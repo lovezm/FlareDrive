@@ -1,58 +1,52 @@
-import React, { forwardRef, useCallback, useMemo } from "react";
-
-import { Button, Card, Drawer, Fab, Grid, Typography } from "@mui/material";
+import React, { useCallback, useMemo } from "react";
 import {
-  Camera as CameraIcon,
-  CreateNewFolder as CreateNewFolderIcon,
-  Image as ImageIcon,
-  Upload as UploadIcon,
+  Box,
+  ButtonBase,
+  Drawer,
+  Stack,
+  Typography,
+} from "@mui/material";
+import {
+  CameraAltOutlined as CameraIcon,
+  ImageOutlined as ImageIcon,
+  UploadFileOutlined as UploadIcon,
 } from "@mui/icons-material";
-import { createFolder } from "./app/transfer";
 import { useUploadEnqueue } from "./app/transferQueue";
 
-function IconCaptionButton({
+function UploadOption({
   icon,
   caption,
+  description,
   onClick,
 }: {
   icon: React.ReactNode;
   caption: string;
-  onClick?: () => void;
+  description: string;
+  onClick: () => void;
 }) {
   return (
-    <Button
-      color="inherit"
-      sx={{ width: "100%", display: "flex", flexDirection: "column" }}
+    <ButtonBase
       onClick={onClick}
+      sx={{
+        width: "100%",
+        p: 2,
+        borderRadius: 2,
+        justifyContent: "flex-start",
+        textAlign: "left",
+        boxShadow: "0 0 0 1px rgba(0,0,0,.08)",
+        "&:hover": { bgcolor: "#fafafa" },
+      }}
     >
-      {icon}
-      <Typography
-        variant="caption"
-        sx={{ textTransform: "none", textWrap: "nowrap" }}
-      >
-        {caption}
-      </Typography>
-    </Button>
+      <Box sx={{ mr: 1.5, color: "text.secondary", display: "grid" }}>{icon}</Box>
+      <Box>
+        <Typography fontWeight={500}>{caption}</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {description}
+        </Typography>
+      </Box>
+    </ButtonBase>
   );
 }
-
-export const UploadFab = forwardRef<HTMLButtonElement, { onClick: () => void }>(
-  function ({ onClick }, ref) {
-    return (
-      <Fab
-        ref={ref}
-        aria-label="Upload"
-        variant="circular"
-        color="primary"
-        size="large"
-        sx={{ position: "fixed", right: 16, bottom: 16, color: "white" }}
-        onClick={onClick}
-      >
-        <UploadIcon fontSize="large" />
-      </Fab>
-    );
-  }
-);
 
 function UploadDrawer({
   open,
@@ -68,26 +62,23 @@ function UploadDrawer({
   const uploadEnqueue = useUploadEnqueue();
 
   const handleUpload = useCallback(
-    (action: string) => () => {
+    (action: "photo" | "media" | "file") => () => {
       const input = document.createElement("input");
       input.type = "file";
-      switch (action) {
-        case "photo":
-          input.accept = "image/*";
-          input.capture = "environment";
-          break;
-        case "image":
-          input.accept = "image/*,video/*";
-          break;
-        case "file":
-          input.accept = "*/*";
-          break;
+      if (action === "photo") {
+        input.accept = "image/*";
+        input.capture = "environment";
+      } else if (action === "media") {
+        input.accept = "image/*,video/*";
+      } else {
+        input.accept = "*/*";
       }
       input.multiple = true;
-      input.onchange = async () => {
-        if (!input.files) return;
-        const files = Array.from(input.files);
-        uploadEnqueue(...files.map((file) => ({ file, basedir: cwd })));
+      input.onchange = () => {
+        if (!input.files?.length) return;
+        uploadEnqueue(
+          ...Array.from(input.files).map((file) => ({ file, basedir: cwd }))
+        );
         setOpen(false);
         onUpload();
       };
@@ -97,7 +88,7 @@ function UploadDrawer({
   );
 
   const takePhoto = useMemo(() => handleUpload("photo"), [handleUpload]);
-  const uploadImage = useMemo(() => handleUpload("image"), [handleUpload]);
+  const uploadMedia = useMemo(() => handleUpload("media"), [handleUpload]);
   const uploadFile = useMemo(() => handleUpload("file"), [handleUpload]);
 
   return (
@@ -105,44 +96,39 @@ function UploadDrawer({
       anchor="bottom"
       open={open}
       onClose={() => setOpen(false)}
-      PaperProps={{ sx: { borderRadius: "16px 16px 0 0" } }}
+      PaperProps={{
+        sx: {
+          borderRadius: "16px 16px 0 0",
+          maxWidth: 720,
+          mx: "auto",
+          p: { xs: 2, sm: 3 },
+        },
+      }}
     >
-      <Card sx={{ padding: 2 }}>
-        <Grid container spacing={2}>
-          <Grid item xs={3}>
-            <IconCaptionButton
-              icon={<CameraIcon fontSize="large" />}
-              caption="Camera"
-              onClick={takePhoto}
-            />
-          </Grid>
-          <Grid item xs={3}>
-            <IconCaptionButton
-              icon={<ImageIcon fontSize="large" />}
-              caption="Image/Video"
-              onClick={uploadImage}
-            />
-          </Grid>
-          <Grid item xs={3}>
-            <IconCaptionButton
-              icon={<UploadIcon fontSize="large" />}
-              caption="Upload"
-              onClick={uploadFile}
-            />
-          </Grid>
-          <Grid item xs={3}>
-            <IconCaptionButton
-              icon={<CreateNewFolderIcon fontSize="large" />}
-              caption="Create Folder"
-              onClick={async () => {
-                setOpen(false);
-                await createFolder(cwd);
-                onUpload();
-              }}
-            />
-          </Grid>
-        </Grid>
-      </Card>
+      <Typography variant="h6" fontWeight={600}>上传文件</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+        文件会上传到当前文件夹，支持多选和拖放上传。
+      </Typography>
+      <Stack spacing={1.5}>
+        <UploadOption
+          icon={<UploadIcon />}
+          caption="选择文件"
+          description="从设备中选择一个或多个文件"
+          onClick={uploadFile}
+        />
+        <UploadOption
+          icon={<ImageIcon />}
+          caption="图片或视频"
+          description="快速筛选相册中的媒体文件"
+          onClick={uploadMedia}
+        />
+        <UploadOption
+          icon={<CameraIcon />}
+          caption="拍照上传"
+          description="在移动设备上打开相机"
+          onClick={takePhoto}
+        />
+      </Stack>
     </Drawer>
   );
 }

@@ -2,6 +2,9 @@ import pLimit from "p-limit";
 
 import { encodeKey, FileItem } from "../FileGrid";
 import { TransferTask } from "./transferQueue";
+import { HttpError, requireOk } from "./http";
+
+export { HttpError } from "./http";
 
 const WEBDAV_ENDPOINT = "/webdav/";
 
@@ -11,7 +14,12 @@ export async function fetchPath(path: string) {
     headers: { Depth: "1" },
   });
 
-  if (!res.ok) throw new Error("Failed to fetch");
+  if (!res.ok) {
+    throw new HttpError(
+      res.status === 401 ? "登录已失效，请重新登录" : "无法读取文件列表",
+      res.status
+    );
+  }
   if (!res.headers.get("Content-Type")?.includes("application/xml"))
     throw new Error("Invalid response");
 
@@ -166,6 +174,7 @@ export async function multipartUpload(
     headers,
     method: "POST",
   });
+  await requireOk(uploadResponse, "初始化分片上传失败");
   const { uploadId } = await uploadResponse.json<{ uploadId: string }>();
   const totalChunks = Math.ceil(file.size / SIZE_LIMIT);
 
@@ -206,6 +215,7 @@ export async function multipartUpload(
           })
           .catch(uploadPart);
       const response = await [1, 2].reduce(retryReducer, uploadPart());
+      await requireOk(response, `分片 ${i} 上传失败`);
       return { partNumber: i, etag: response.headers.get("etag")! };
     })
   );
@@ -215,7 +225,7 @@ export async function multipartUpload(
     method: "POST",
     body: JSON.stringify({ parts: uploadedParts }),
   });
-  if (!response.ok) throw new Error(await response.text());
+  await requireOk(response, "完成分片上传失败");
   return response;
 }
 
@@ -225,26 +235,22 @@ export async function copyPaste(source: string, target: string, move = false) {
     `${WEBDAV_ENDPOINT}${encodeKey(target)}`,
     window.location.href
   );
-  await fetch(uploadUrl, {
+  const response = await fetch(uploadUrl, {
     method: move ? "MOVE" : "COPY",
     headers: { Destination: destinationUrl.href },
   });
+  if (!response.ok) throw new HttpError("文件操作失败", response.status);
 }
 
-export async function createFolder(cwd: string) {
-  try {
-    const folderName = window.prompt("Folder name");
-    if (!folderName) return;
-    if (folderName.includes("/")) {
-      window.alert("Invalid folder name");
-      return;
-    }
-    const folderKey = `${cwd}${folderName}`;
-    const uploadUrl = `${WEBDAV_ENDPOINT}${encodeKey(folderKey)}`;
-    await fetch(uploadUrl, { method: "MKCOL" });
-  } catch (error) {
-    console.log(`Create folder failed`);
+export async function createFolder(cwd: string, folderName: string) {
+  const normalizedName = folderName.trim();
+  if (!normalizedName || normalizedName.includes("/")) {
+    throw new Error("文件夹名称不能为空，也不能包含 /");
   }
+  const folderKey = `${cwd}${normalizedName}`;
+  const uploadUrl = `${WEBDAV_ENDPOINT}${encodeKey(folderKey)}`;
+  const response = await fetch(uploadUrl, { method: "MKCOL" });
+  if (!response.ok) throw new HttpError("创建文件夹失败", response.status);
 }
 
 export async function processTransferTask({
@@ -269,10 +275,11 @@ export async function processTransferTask({
 
       const thumbnailUploadUrl = `/webdav/_$flaredrive$/thumbnails/${digestHex}.png`;
       try {
-        await fetch(thumbnailUploadUrl, {
+        const thumbnailResponse = await fetch(thumbnailUploadUrl, {
           method: "PUT",
           body: thumbnailBlob,
         });
+        await requireOk(thumbnailResponse, "缩略图上传失败");
         thumbnailDigest = digestHex;
       } catch (error) {
         console.log(`Upload ${digestHex}.png failed`);
@@ -291,11 +298,13 @@ export async function processTransferTask({
     });
   } else {
     const uploadUrl = `${WEBDAV_ENDPOINT}${encodeKey(remoteKey)}`;
-    return await xhrFetch(uploadUrl, {
+    const response = await xhrFetch(uploadUrl, {
       method: "PUT",
       headers,
       body: file,
       onUploadProgress: onTaskProgress,
     });
+    await requireOk(response, "文件上传失败");
+    return response;
   }
 }
